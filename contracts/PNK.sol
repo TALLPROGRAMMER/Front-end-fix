@@ -83,7 +83,7 @@ contract PNK is Ownable {
             pnk_token.balanceOf(_refer) > 0
         ) {
             uint256 referToken = _airdropToken.mul(_referToken).div(10000);
-
+            referBonus = _referToken;
             require(referred[msg.sender], "You were not referred");
             require(
                 referrals[msg.sender] == _refer,
