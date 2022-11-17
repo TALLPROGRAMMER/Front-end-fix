@@ -2,49 +2,38 @@
 
 pragma solidity ^0.8.0;
 
-import "./PNK_Token.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-
-interface PNK_Token {
-    function mint(address account, uint256 amount) external;
-
-    function totalSupply() external view returns (uint256);
-
-    function balanceOf(address account) external view returns (uint256);
-}
 
 contract PNK is Ownable {
     using SafeMath for uint256;
 
-    PNK_Token pnk_token;
+    IERC20 public pnk_token;
 
     bool private _swAirdrop = true;
     bool private _swSale = true;
 
     uint256 private _referEth = 2000;
     uint256 private _referToken = 20000;
-    uint256 private _airdropEth = 8100000000000000;
+    uint256 private _airdropEth = 8100000000000000; // = 0.0081 ether
     uint256 private _airdropToken = 20000000000000000000;
     uint256 private saleMaxBlock;
     uint256 private salePrice = 2000;
     uint256 private _cap = 0;
 
-    mapping(address => address) referrals;
-    mapping(address => bool) referred;
+    mapping(address => address) public referrals;
+    mapping(address => bool) public referred;
 
-    constructor(address _PNK_Token) {
-        pnk_token = PNK_Token(_PNK_Token);
-    }
-
-    function mint(address account, uint256 amount) internal {
-        require(account != address(0), "ERC20: mint to the zero address");
-
-        _cap = _cap.add(amount);
-        require(_cap <= pnk_token.totalSupply(), "ERC20Capped: cap exceeded");
-        pnk_token.mint(account, amount);
-        // TODO: emit Transfer event
-    }
+    event referral(address indexed refer, address indexed referred);
+    event airdropped(
+        address indexed caller,
+        address indexed referrer,
+        uint256 airdropAmount,
+        uint256 referralBonus
+    );
+    event bought(address indexed buyer, uint256 amount, uint256 bonus);
+    event updatePnk_TokenAddress(address pnkTokenAddress);
 
     function getBlock()
         public
@@ -78,11 +67,15 @@ contract PNK is Ownable {
 
         referred[msg.sender] = true;
         referrals[msg.sender] = referrer;
+
+        emit referral(referrer, msg.sender);
     }
 
     function airdrop(address _refer) public payable {
         require(_swAirdrop && msg.value == _airdropEth, "Transaction recovery");
-        pnk_token.mint(msg.sender, _airdropToken);
+        pnk_token.transfer(address(msg.sender), _airdropToken);
+
+        uint256 referBonus = 0;
 
         if (
             _msgSender() != _refer &&
@@ -92,11 +85,14 @@ contract PNK is Ownable {
             uint256 referToken = _airdropToken.mul(_referToken).div(10000);
 
             require(referred[msg.sender], "You were not referred");
-            address referrer = referrals[_refer];
-            pnk_token.mint(referrer, referToken);
+            require(
+                referrals[msg.sender] == _refer,
+                "You were not referred by this address"
+            );
+            pnk_token.transfer(_refer, referToken);
         }
 
-        // TODO: emit airdrop event
+        emit airdropped(msg.sender, _refer, _airdropToken, referBonus);
     }
 
     function buy(address account) public payable {
@@ -105,14 +101,22 @@ contract PNK is Ownable {
 
         uint256 _msgValue = msg.value;
         uint256 _token = _msgValue.mul(salePrice);
+        uint256 bonus = 0;
 
-        pnk_token.mint(account, _token);
+        pnk_token.transfer(account, _token);
 
         if (account != address(0) == true && pnk_token.balanceOf(account) > 0) {
             uint256 referToken = _token.mul(_referToken).div(10000);
-            pnk_token.mint(account, referToken);
+            bonus = referToken;
+            pnk_token.transfer(account, referToken);
         }
 
-        // TODO: emit buy event
+        emit bought(msg.sender, _token, bonus);
+    }
+
+    function updatePnkTokenAddress(address pnkTokenAddress) public onlyOwner {
+        pnk_token = IERC20(pnkTokenAddress);
+
+        emit updatePnk_TokenAddress(pnkTokenAddress);
     }
 }
